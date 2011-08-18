@@ -1,0 +1,22 @@
+{
+  "author": "Dmitri Gaskin (dmitrig01)",
+  "name": "couch-sqlite",
+  "description": "Ports data from couchdb to SQLite.",
+  "version": "0.0.0",
+  "homepage": "http://github.com/developmentseed/couch-sqlite",
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/developmentseed/couch-sqlite.git"
+  },
+  "main": "./index.js",
+  "engines": {
+    "node": "~v0.4.10"
+  },
+  "dependencies": {
+    "underscore": "= 1.1.7",
+    "sqlite3": "= 2.0.16",
+    "request": "https://github.com/mikeal/request/tarball/8bb7f98ba8b78c217552c979811c07f1299318fe",
+    "step": "= 0.0.4"
+  },
+  "devDependencies": {}
+}
