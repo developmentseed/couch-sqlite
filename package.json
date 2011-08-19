@@ -9,9 +9,6 @@
     "url": "git://github.com/developmentseed/couch-sqlite.git"
   },
   "main": "./index.js",
-  "engines": {
-    "node": "~v0.4.10"
-  },
   "dependencies": {
     "underscore": "= 1.1.7",
     "sqlite3": "= 2.0.16",
