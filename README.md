@@ -3,6 +3,7 @@ The couch-sqlite library allows easy moving of data from CouchDB into SQLite.
 Using it is quite simple. It provides one function, which moves data over from Couch to SQLite. Couch-SQLite automatically keeps track of the last record it's moved over, and only ports since that changes over when called.
 
 The function takes the following parameters:
+
 * sqlite: path to the SQLite database. Does not need to actually exist -- couch-sqlite autocreates it.
 * table: SQLite table name.
 * schema: table schema, used when autocreating the table.
