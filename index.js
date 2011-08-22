@@ -17,7 +17,7 @@ module.exports = function(options) {
         });
     }, function() {
         var self = this;
-        options.schema += ', _id INTEGER';
+        options.schema += ', _id VARCHAR';
         db.run('CREATE TABLE IF NOT EXISTS ' + options.table + ' (' + options.schema + ')', function (err) {
             if (err) throw err;
             self();
