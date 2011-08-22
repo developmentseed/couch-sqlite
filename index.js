@@ -16,9 +16,8 @@ module.exports = function(options) {
             });
         });
     }, function() {
-        var self = this;
-        options.schema += ', _id VARCHAR';
-        db.run('CREATE TABLE IF NOT EXISTS ' + options.table + ' (' + options.schema + ')', function (err) {
+        var self = this, schema = (options.schema + ', ' || '') + '_id VARCHAR';
+        db.run('CREATE TABLE IF NOT EXISTS ' + options.table + ' (' + schema + ')', function (err) {
             if (err) throw err;
             self();
         });
