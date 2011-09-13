@@ -2,7 +2,7 @@
   "author": "Dmitri Gaskin (dmitrig01)",
   "name": "couch-sqlite",
   "description": "Ports data from couchdb to SQLite.",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "homepage": "http://github.com/developmentseed/couch-sqlite",
   "repository": {
     "type": "git",
