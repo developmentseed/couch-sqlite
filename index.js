@@ -1,46 +1,31 @@
-var Step = require('step'),
+var events = require('events'),
+    util = require('util'),
     _ = require('underscore')._,
     request = require('request'),
     sqlite3 = require('sqlite3');
 
-module.exports = function(options) {
-    var db, last, records;
-    Step(function() {
-        var self = this;
-        // Install sqlite db.
-        db = new sqlite3.Database(options.sqlite, function(err) {
-            if (err) throw err;
-            db.run('CREATE TABLE IF NOT EXISTS last_seq (id INTEGER)', function(err) {
-                if (err) throw err;
-                self();
-            });
-        });
-    }, function() {
-        var self = this, schema = (options.schema + ', ' || '') + '_id VARCHAR';
-        db.run('CREATE TABLE IF NOT EXISTS ' + options.table + ' (' + schema + ')', function (err) {
-            if (err) throw err;
-            self();
-        });
-    }, function() {
-        var self = this;
-        db.all('SELECT * FROM last_seq', function(err, data) {
-            if (err) throw err;
-            var last_id = ((data && data[0] && data[0].id) || 0);
+// Installs the database and it's tables
+var install = function(sqliteDb, schema, callback) {
+    var db;
+    db = new sqlite3.Database(sqliteDb, function(err) {
+        if (err) callback(err);
 
-            request.get({
-                uri: 'http://' +
-                    options.couchHost + ':' +
-                    options.couchPort + '/' +
-                    options.couchDb + '/_changes?since=' + last_id + '&include_docs=true',
-            }, function(err, response, body) {
-                var body = JSON.parse(body);
-                records = body.results;
-                last = body.last_seq;
-                self();
+        db.run('CREATE TABLE IF NOT EXISTS last_seq (id INTEGER)', function(err) {
+            if (err) return callback(err);
+
+            var schema = (schema + ', ' || '') + '_id VARCHAR';
+            db.run('CREATE TABLE IF NOT EXISTS data (' + schema + ')', function (err) {
+                return callback(err);
             });
         });
-    }, function() {
-        var group = this.group();
+    });
+};
+
+// Accept updates from couch.
+var update = function() {
+
+        db.all('SELECT * FROM last_seq', function(err, data) {
+
         _(records).each(function(record) {
             var data = options.map(record.doc), next = group();
             if (!record.deleted && !data) {
@@ -70,8 +55,8 @@ module.exports = function(options) {
                 });
             }
         });
-    }, function() {
-        var self = this;
+
+        // can't by sync..
         db.run('DELETE FROM last_seq', function(err) {
             if (err) throw err;
             db.run('INSERT INTO last_seq VALUES (?)', [ last ], function(err) {
@@ -79,5 +64,65 @@ module.exports = function(options) {
                 self();
             });
         })
-    });
 };
+
+// Just run this once
+var oneOff = function(lastId, callback) {
+
+    var uri = 'http://' + options.couchHost + ':' + options.couchPort + '/';
+        uri += options.couchDb + '/_changes?since=' + lastId + '&include_docs=true',
+
+    request.get({uri: uri }, function(err, response, body) {
+        if (err) return callback(err);
+
+        var body = JSON.parse(body);
+        records = body.results;
+        last = body.last_seq;
+        callback();
+    });
+
+
+// For the long run...
+var run = function() {
+
+}
+
+/**
+ * Object which managed the connection between Couch and Sqlite.
+ * Takes a single `options` argument, an object which can have the
+ * following keys;
+ *
+ * - `sqlite` (required) Path to a sqlite file, or a location to write one.
+ * - `schema` (required) a statement which can be used to create the schema.
+ * - `couchHost` (required) the host of the couch database
+ * - `couchPort` (required) the port on which couch is running
+ * - `couchDb` (required) the database name
+ * - `keys` ...
+ * - `table` Name to use for data table in the sqlite database, defaults to `data`
+ * - `map` (deprecated)
+ */
+var Connector = function(options) {
+
+    var db, last, records;
+
+    Step(function() {
+        install(options.sqlite, options.schema, this);
+    }, function() {
+        var self = this;
+
+}
+
+util.inherits(Connector, events.EventEmitter);
+
+Connector.prototype.run = function(persistent) {
+    if (persistent) {
+        run();
+    } else {
+        oneOff();
+    }
+    return this;
+}
+
+module.exports = function(options, callback) {
+   new Connector(options, callback);
+}
