@@ -88,8 +88,12 @@ var setLastId = function(conn, id, callback) {
         db.exec('COMMIT', next);
     });
 
-    _(actions).reduceRight(_.wrap, callback)();
+    _(actions).reduceRight(_.wrap, function(err) {
+        conn.pool.release(db);
+        callback(err);
+    })();
 };
+
 
 // Accept updates from couch, write them to SQLite.
 var update = function(conn, record, callback) {
@@ -189,7 +193,7 @@ var Connector = function(options, callback) {
                 callback(err, db);
             });
         },
-        destroy  : function(client) { delete client; },
+        destroy  : function(client) { client.close(); },
         max      : 1,
         log : false
     });
