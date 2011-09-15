@@ -1,5 +1,9 @@
 {
-  "author": "Dmitri Gaskin (dmitrig01)",
+  "author": {
+    "name": "Development Seed",
+    "url": "http://developmentseed.org/",
+    "email": "info@developmentseed.org"
+  },
   "name": "couch-sqlite",
   "description": "Ports data from couchdb to SQLite.",
   "version": "0.0.1",
