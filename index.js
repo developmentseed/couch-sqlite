@@ -3,27 +3,45 @@ var events = require('events'),
     _ = require('underscore')._,
     request = require('request'),
     sqlite3 = require('sqlite3');
+    pool = require('generic-pool').Pool;
+
+
 
 /**
  * Opens a connection to sqlite, optionally installs the database and its
  * tables.
- * TODO make that "optionally" a reality.
- * TODO un-nestify
  */
-var openSqlite = function(sqliteDb, schema, callback) {
-    var db;
-    db = new sqlite3.Database(sqliteDb, function(err) {
-        if (err) callback(err);
+var openSqlite = function(conn, table, schema, callback) {
+    var actions = [],
+        db;
 
-        db.run('CREATE TABLE IF NOT EXISTS last_seq (id INTEGER)', function(err) {
-            if (err) return callback(err);
-
-            var schema = (schema + ', ' || '') + '_id VARCHAR';
-            db.run('CREATE TABLE IF NOT EXISTS data (' + schema + ')', function (err) {
-                return callback(err, db);
-            });
-        });
+    actions.push(function(next) {
+        conn.pool.acquire(function(err, sqliteDb) {
+            if (err) return next(err);
+            db = sqliteDb; // closure.
+            next();
+        })
     });
+
+    // Only attempt to create our tables if we've been handed a schema.
+    if (schema) {
+        actions.push(function(next, err, sqliteDb) {
+            if (err) return next(err);
+            db.exec('CREATE TABLE IF NOT EXISTS last_seq (id INTEGER)', next) ;
+        });
+
+        actions.push(function(next, err) {
+            if (err) return next(err);
+
+            // Add a `_id` column for internal tracking.
+            schema += ', _id VARCHAR';
+            db.exec('CREATE TABLE IF NOT EXISTS '+ table +'('+ schema +')', next);
+        });
+    }
+
+    _(actions).reduceRight(_.wrap, function(err) {
+        callback(err, db);
+    })();
 };
 
 // Fetch that last sequence id from sqlite.
@@ -46,7 +64,7 @@ var setLastId = function(conn, id, callback) {
 
     actions.push(function(next, err) {
         if (err) return callback(err);
-        openSqlite(conn.options.sqlite, null, next);
+        openSqlite(conn, null, null, next);
     });
 
     actions.push(function(next, err, sqlite) {
@@ -84,8 +102,7 @@ var update = function(conn, record, callback) {
     conn.emit('map', record.doc);
 
     // If the result of the `map` is a falsy value we do nothing.
-    if (!record.doc) return next();
-
+    if (!record.doc) return callback();
 
     var actions = [],
         db;
@@ -93,7 +110,7 @@ var update = function(conn, record, callback) {
     // Grab a fresh connection to SQLite so that we can execute
     // each update as a transaction.
     actions.push(function(next) {
-        openSqlite(conn.options.sqlite, null, next);
+        openSqlite(conn, null, null, next);
     });
 
     actions.push(function(next, err, sqlite) {
@@ -133,7 +150,10 @@ var update = function(conn, record, callback) {
         db.exec('COMMIT', next);
     });
 
-    _(actions).reduceRight(_.wrap, callback)();
+    _(actions).reduceRight(_.wrap, function(err) {
+        conn.pool.release(db);
+        callback(err);
+    })();
 };
 
 /**
@@ -161,6 +181,19 @@ var Connector = function(options, callback) {
     // TODO enforce defaults, copy things over.
     this.options = options;
 
+    // Setup the (single) connection pool.
+    this.pool = pool({
+        create   : function(callback) {
+            var db;
+            db = new sqlite3.Database(options.sqlite, function(err) {
+                callback(err, db);
+            });
+        },
+        destroy  : function(client) { delete client; },
+        max      : 1,
+        log : false
+    });
+
     return this;
 };
 
@@ -177,12 +210,15 @@ Connector.prototype.run = function(persistent) {
         uri += this.options.couchDb + '/_changes?include_docs=true';
 
     actions.push(function(next) {
-        openSqlite(that.options.sqlite, that.options.schema, next);
+        openSqlite(that, that.options.table, that.options.schema, next);
     });
 
     // Fetch that last updated ID.
     actions.push(function(next, err, db) {
+        if (err) return next(err);
+
         getLastId(db, next);
+        that.pool.release(db);
     });
 
     if (persistent) {
@@ -254,7 +290,7 @@ Connector.prototype.run = function(persistent) {
 
         // Set the Last id in SQLite.
         actions.push(function(next, err) {
-            if (err) return callback(err);
+            if (err) return next(err);
             setLastId(that, lastId, next);
         });
     }

@@ -13,7 +13,7 @@
     "underscore": "= 1.1.7",
     "sqlite3": "= 2.0.16",
     "request": "https://github.com/mikeal/request/tarball/8bb7f98ba8b78c217552c979811c07f1299318fe",
-    "step": "= 0.0.4"
+    "generic-pool": "= 1.0.6"
   },
   "devDependencies": {}
 }
