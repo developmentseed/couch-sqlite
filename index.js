@@ -4,9 +4,13 @@ var events = require('events'),
     request = require('request'),
     sqlite3 = require('sqlite3');
 
-// Installs the database and it's tables
-// TODO the name here is a bit of a misnomer.
-var install = function(sqliteDb, schema, callback) {
+/**
+ * Opens a connection to sqlite, optionally installs the database and its
+ * tables.
+ * TODO make that "optionally" a reality.
+ * TODO un-nestify
+ */
+var openSqlite = function(sqliteDb, schema, callback) {
     var db;
     db = new sqlite3.Database(sqliteDb, function(err) {
         if (err) callback(err);
@@ -23,7 +27,7 @@ var install = function(sqliteDb, schema, callback) {
 };
 
 // Fetch that last sequence id from sqlite.
-var lastId = function(db, callback) {
+var getLastId = function(db, callback) {
     db.all('SELECT * FROM last_seq', function(err, data) {
         if (err) return callback(err);
 
@@ -35,64 +39,62 @@ var lastId = function(db, callback) {
     });
 }
 
-// Accept updates from couch.
-var update = function(records, last, callback) {
-    console.log(records);
-    return;
-    _(records).each(function(record) {
-        var data = options.map(record.doc),
-            next = group();
-
-        if (!record.deleted && !data) {
-            next();
-        }
-        else {
-            db.run('DELETE FROM ' + options.table + ' WHERE _id = ?', [ record.id ], function(err) {
-                if (err) throw err;
-                if (record.deleted) {
-                    next();
-                }
-                else {
-                    data._id = record.id;
-                    var stmt = 'INSERT INTO ' + options.table + ' (' + _.map(data, function(v,k) { return "'" + k + "'" }).join(',') + ') VALUES (',
-                        values = [],
-                        args = [];
-                    _(data).each(function(value) {
-                        args.push(value);
-                        values.push('?');
-                    });
-                    stmt += values.join(',') + ')';
-                    db.run(stmt, args, function(err) {
-                        if (err) throw err;
-                        next();
-                    });
-                }
-            });
-        }
-    });
-
-    // can't by sync..
+var setLastId = function(db, id, callback) {
+    // TODO run this as a transaction, or the like.
     db.run('DELETE FROM last_seq', function(err) {
-        if (err) throw err;
-        db.run('INSERT INTO last_seq VALUES (?)', [ last ], function(err) {
-            if (err) throw err;
-            self();
+        if (err) return callback(err);
+
+        db.run('INSERT INTO last_seq VALUES (?)', [ id ], function(err) {
+            callback(err);
         });
     });
 };
 
-// Just run this once
-var oneOff = function(uri, callback) {
+// Accept updates from couch, write them to SQLite.
+var update = function(db, table, record, callback) {
+    //console.log(record);
+    //return callback('die');
 
-    request.get({uri: uri }, function(err, response, body) {
-        if (err) return callback(err);
+    var actions = [];
 
-        var body = JSON.parse(body);
-        records = body.results;
-        last = body.last_seq;
-        update(records, last, callback);
+    actions.push(function(next) {
+        db.exec('BEGIN TRANSACTION', next);
     });
+
+    actions.push(function(next, err) {
+        if (err) return next(err);
+        db.run('DELETE FROM ' + table + ' WHERE _id = ?', [ record.id ], next);
+    });
+
+    // handle deleted records...
+    //if (!record.deleted) {
+    if (true) {
+       actions.push(function(next, err) {
+            if (err) return next(err);
+
+            record.doc._id = record.id;
+            var stmt = 'INSERT INTO ' + table + ' (' + _.map(record.doc, function(v,k) { return "'" + k + "'" }).join(',') + ') VALUES (',
+                values = [],
+                args = [];
+
+            _(record.doc).each(function(value) {
+                args.push(value);
+                values.push('?');
+            });
+            stmt += values.join(',') + ')';
+
+            db.run(stmt, args, next);
+       });
+    }
+
+    actions.push(function(next, err) {
+        if (err) return next(err);
+        db.exec('COMMIT', next);
+    });
+
+    _(actions).reduceRight(_.wrap, callback)();
 };
+
 
 
 // For the long run...
@@ -122,24 +124,10 @@ var run = function() {
  * - done
  */
 var Connector = function(options, callback) {
+    // TODO enforce defaults, copy things over.
     this.options = options;
 
-    // If a callback isn't specified, assume that we just want the deprecated
-    // old style behavior.
-    if (callback == undefined) {
-        callback = function(err, conn) {
-            if (err) return console.warn(err);
-            conn.run();
-        }
-    }
-
-    var that = this;
-    install(options.sqlite, options.schema, function(err, db) {
-        if (err) return callback(err);
-        
-        that.db = db;
-        callback(null, that);
-    });
+    return this;
 };
 
 util.inherits(Connector, events.EventEmitter);
@@ -154,27 +142,73 @@ Connector.prototype.run = function(persistent) {
         uri += this.options.couchDb + '/_changes?include_docs=true';
 
     actions.push(function(next) {
-        lastId(that.db, next);
+        openSqlite(that.options.sqlite, that.options.schema, next);
     });
 
+    // Fetch that last updated ID.
+    actions.push(function(next, err, db) {
+        getLastId(db, next);
+    });
+
+    // Fetch the CouchDB _changes URI.
     actions.push(function(next, err, id) {
         if (err) return next(err);
 
-        /* TESTING */ id = id - 1; /* END TESTING */
         uri += '&since=' + id;
 
-        if (persistent) {
-            run();
-        } else {
-            oneOff(uri, next);
-        }
+        request.get({uri: uri }, next);
     });
+
+    // Update SQLite.
+    actions.push(function(next, err, response, body) {
+        if (err) return callback(err);
+
+        var resp = JSON.parse(body);
+        // TODO resp.last_seq...
+
+        // Only call next once we're through all the records.
+        next = _.after(resp.results.length, next);
+
+        // Capture all errors we generate in a closure.
+        var errors = [];
+        var done = function(err) {
+            if (err) errors.push(err);
+            next(errors.length || null);
+        };
+
+        _(resp.results).each(function(record) {
+
+            // Allow data to be transformed.
+            // TODO remove 'options.map' way...
+            if (that.options.map) {
+                record.doc = that.options.map(record.doc);
+            }
+            that.emit('map', record.doc);
+
+            // If the result of the `map` is a falsy value we do nothing.
+            if (!record.doc) return next();
+
+            // Grab a fresh connection to SQLite so that we can execute
+            // each update as a transaction.
+            openSqlite(that.options.sqlite, null, function(err, db) {
+                if (err) return next(err);
+
+                update(db, that.options.table, record, done);
+            });
+        });
+    });
+
+    // Set the Last id in SQLite (TODO).
+    actions.push(function(next, err) {
+        if (err) return next(err);
+        next();
+    })
 
     _(actions).reduceRight(_.wrap, function(err) {
         if (err) that.emit('error', err);
     })();
 };
 
-module.exports = function(options, callback) {
-   new Connector(options, callback);
+module.exports = function(options) {
+   return new Connector(options);
 }
