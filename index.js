@@ -179,7 +179,7 @@ var update = function(conn, record, callback) {
  *
  * - map
  * - error
- * - done
+ * - done (not implemented)
  */
 var Connector = function(options, callback) {
     // TODO enforce defaults, copy things over.
