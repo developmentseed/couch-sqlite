@@ -195,6 +195,7 @@ var Connector = function(options, callback) {
         },
         destroy  : function(client) { client.close(); },
         max      : 1,
+        idleTimeoutMillis : 100,
         log : false
     });
 
@@ -273,6 +274,9 @@ Connector.prototype.run = function(persistent) {
             if (err) return callback(err);
 
             var resp = JSON.parse(body);
+            if (!resp.results || resp.results.length == 0) {
+              return next(null, false);
+            }
 
             // Update the lastId closure.
             lastId = resp.last_seq;
@@ -284,7 +288,7 @@ Connector.prototype.run = function(persistent) {
             var errors = [];
             var done = function(err) {
                 if (err) errors.push(err);
-                next(errors.length || null);
+                next(errors.length || null, true);
             };
 
             _(resp.results).each(function(record) {
@@ -293,9 +297,13 @@ Connector.prototype.run = function(persistent) {
         });
 
         // Set the Last id in SQLite.
-        actions.push(function(next, err) {
+        actions.push(function(next, err, updateSeq) {
             if (err) return next(err);
-            setLastId(that, lastId, next);
+            if (updateSeq) {
+                setLastId(that, lastId, next);
+            } else {
+                next();
+            }
         });
     }
 
