@@ -39,10 +39,19 @@ var getLastId = function(db, callback) {
     });
 }
 
-var setLastId = function(db, id, callback) {
-    var actions = [];
+// Grab a fresh connection and set the Last id in SQLite.
+var setLastId = function(conn, id, callback) {
+    var actions = [],
+        db;
 
-    actions.push(function(next) {
+    actions.push(function(next, err) {
+        if (err) return callback(err);
+        openSqlite(conn.options.sqlite, null, next);
+    });
+
+    actions.push(function(next, err, sqlite) {
+        if (err) return callback(err);
+        db = sqlite;
         db.exec('BEGIN TRANSACTION', next);
     });
 
@@ -65,16 +74,37 @@ var setLastId = function(db, id, callback) {
 };
 
 // Accept updates from couch, write them to SQLite.
-var update = function(db, table, record, callback) {
-    var actions = [];
+var update = function(conn, record, callback) {
 
+    // Allow data to be transformed.
+    // TODO remove 'options.map' way...
+    if (conn.options.map) {
+        record.doc = conn.options.map(record.doc);
+    }
+    conn.emit('map', record.doc);
+
+    // If the result of the `map` is a falsy value we do nothing.
+    if (!record.doc) return next();
+
+
+    var actions = [],
+        db;
+
+    // Grab a fresh connection to SQLite so that we can execute
+    // each update as a transaction.
     actions.push(function(next) {
+        openSqlite(conn.options.sqlite, null, next);
+    });
+
+    actions.push(function(next, err, sqlite) {
+        if (err) return next(err);
+        db = sqlite;
         db.exec('BEGIN TRANSACTION', next);
     });
 
     actions.push(function(next, err) {
         if (err) return next(err);
-        db.run('DELETE FROM ' + table + ' WHERE _id = ?', [ record.id ], next);
+        db.run('DELETE FROM ' + conn.options.table + ' WHERE _id = ?', [ record.id ], next);
     });
 
     // handle deleted records...
@@ -84,7 +114,7 @@ var update = function(db, table, record, callback) {
             if (err) return next(err);
 
             record.doc._id = record.id;
-            var stmt = 'INSERT INTO ' + table + ' (' + _.map(record.doc, function(v,k) { return "'" + k + "'" }).join(',') + ') VALUES (',
+            var stmt = 'INSERT INTO ' + conn.options.table + ' (' + _.map(record.doc, function(v,k) { return "'" + k + "'" }).join(',') + ') VALUES (',
                 values = [],
                 args = [];
 
@@ -104,11 +134,6 @@ var update = function(db, table, record, callback) {
     });
 
     _(actions).reduceRight(_.wrap, callback)();
-};
-
-// For the long run...
-var run = function() {
-
 };
 
 /**
@@ -160,70 +185,79 @@ Connector.prototype.run = function(persistent) {
         getLastId(db, next);
     });
 
-    // Fetch the CouchDB _changes URI.
-    actions.push(function(next, err, id) {
-        if (err) return next(err);
+    if (persistent) {
+        // Handle continuous connections
+        actions.push(function(next, err, id) {
+            if (err) return next(err);
 
-        // Set the lastId closure.
-        lastId = id;
+            uri += '&since=' + id;
+            uri += '&feed=continuous';
+            uri += '&heartbeat=30000'; // TODO make configurable.
 
-        uri += '&since=' + id;
+            var handleData = function(chunk) {
+                var body = chunk.toString('utf8');
+                // "heartbeat" chunks will contain a single newline.
+                if (body.length > 1) {
+                    body = JSON.parse(body);
+                    update(that, body, function() {
+                        if (err) return that.emit('error',err);
 
-        request.get({uri: uri }, next);
-    });
+                        if (body.seq > lastId) {
+                          lastId = body.seq; // closure
+                          setLastId(that, lastId, function(err){
+                              if (err) return that.emit('error',err);
+                          });
+                        }
+                    });
+                }
+            };
 
-    // Update SQLite.
-    actions.push(function(next, err, response, body) {
-        if (err) return callback(err);
-
-        var resp = JSON.parse(body);
-
-        // Update the lastId closure.
-        lastId = resp.last_seq;
-
-        // Only call next once we're through all the records.
-        next = _.after(resp.results.length, next);
-
-        // Capture all errors we generate in a closure.
-        var errors = [];
-        var done = function(err) {
-            if (err) errors.push(err);
-            next(errors.length || null);
-        };
-
-        _(resp.results).each(function(record) {
-
-            // Allow data to be transformed.
-            // TODO remove 'options.map' way...
-            if (that.options.map) {
-                record.doc = that.options.map(record.doc);
-            }
-            that.emit('map', record.doc);
-
-            // If the result of the `map` is a falsy value we do nothing.
-            if (!record.doc) return next();
-
-            // Grab a fresh connection to SQLite so that we can execute
-            // each update as a transaction.
-            openSqlite(that.options.sqlite, null, function(err, db) {
-                if (err) return next(err);
-
-                update(db, that.options.table, record, done);
+            // Fetch the CouchDB _changes URI.
+            request.get({uri: uri, onResponse: true}, function(err, response) {
+                response.on('data', handleData);
             });
         });
-    });
+    } else {
+        // Fetch the CouchDB _changes URI.
+        actions.push(function(next, err, id) {
+            if (err) return next(err);
 
-    // Grab a fresh connection and set the Last id in SQLite.
-    actions.push(function(next, err) {
-        if (err) return callback(err);
-        openSqlite(that.options.sqlite, null, next);
-    });
+            lastId = id; // closure.
 
-    // Fetch that last updated ID.
-    actions.push(function(next, err, db) {
-        if (err) return callback(err);
-        setLastId(db, lastId, next);
-    });
+            uri += '&since=' + id;
+            request.get({uri: uri }, next);
+        });
+
+        // Update SQLite.
+        actions.push(function(next, err, response, body) {
+            if (err) return callback(err);
+
+            var resp = JSON.parse(body);
+
+            // Update the lastId closure.
+            lastId = resp.last_seq;
+
+            // Only call next once we're through all the records.
+            next = _.after(resp.results.length, next);
+
+            // Capture all errors we generate in a closure.
+            var errors = [];
+            var done = function(err) {
+                if (err) errors.push(err);
+                next(errors.length || null);
+            };
+
+            _(resp.results).each(function(record) {
+                update(that, record, done);
+            });
+        });
+
+        // Set the Last id in SQLite.
+        actions.push(function(next, err) {
+            if (err) return callback(err);
+            setLastId(that, lastId, next);
+        });
+    }
 
     _(actions).reduceRight(_.wrap, function(err) {
         if (err) that.emit('error', err);
