@@ -40,21 +40,32 @@ var getLastId = function(db, callback) {
 }
 
 var setLastId = function(db, id, callback) {
-    // TODO run this as a transaction, or the like.
-    db.run('DELETE FROM last_seq', function(err) {
-        if (err) return callback(err);
+    var actions = [];
 
-        db.run('INSERT INTO last_seq VALUES (?)', [ id ], function(err) {
-            callback(err);
-        });
+    actions.push(function(next) {
+        db.exec('BEGIN TRANSACTION', next);
     });
+
+    actions.push(function(next, err) {
+        if (err) return callback(err);
+        db.run('DELETE FROM last_seq', next);
+    });
+
+    actions.push(function(next, err) {
+        if (err) return callback(err);
+        db.run('INSERT INTO last_seq VALUES (?)', [ id ], next);
+    });
+
+    actions.push(function(next, err) {
+        if (err) return next(err);
+        db.exec('COMMIT', next);
+    });
+
+    _(actions).reduceRight(_.wrap, callback)();
 };
 
 // Accept updates from couch, write them to SQLite.
 var update = function(db, table, record, callback) {
-    //console.log(record);
-    //return callback('die');
-
     var actions = [];
 
     actions.push(function(next) {
@@ -95,8 +106,6 @@ var update = function(db, table, record, callback) {
     _(actions).reduceRight(_.wrap, callback)();
 };
 
-
-
 // For the long run...
 var run = function() {
 
@@ -134,6 +143,7 @@ util.inherits(Connector, events.EventEmitter);
 
 Connector.prototype.run = function(persistent) {
     var that = this,
+        lastId = 0,
         actions = [];
 
     // Assumble the basic changes uri.
@@ -154,6 +164,9 @@ Connector.prototype.run = function(persistent) {
     actions.push(function(next, err, id) {
         if (err) return next(err);
 
+        // Set the lastId closure.
+        lastId = id;
+
         uri += '&since=' + id;
 
         request.get({uri: uri }, next);
@@ -164,7 +177,9 @@ Connector.prototype.run = function(persistent) {
         if (err) return callback(err);
 
         var resp = JSON.parse(body);
-        // TODO resp.last_seq...
+
+        // Update the lastId closure.
+        lastId = resp.last_seq;
 
         // Only call next once we're through all the records.
         next = _.after(resp.results.length, next);
@@ -198,11 +213,17 @@ Connector.prototype.run = function(persistent) {
         });
     });
 
-    // Set the Last id in SQLite (TODO).
+    // Grab a fresh connection and set the Last id in SQLite.
     actions.push(function(next, err) {
-        if (err) return next(err);
-        next();
-    })
+        if (err) return callback(err);
+        openSqlite(that.options.sqlite, null, next);
+    });
+
+    // Fetch that last updated ID.
+    actions.push(function(next, err, db) {
+        if (err) return callback(err);
+        setLastId(db, lastId, next);
+    });
 
     _(actions).reduceRight(_.wrap, function(err) {
         if (err) that.emit('error', err);
