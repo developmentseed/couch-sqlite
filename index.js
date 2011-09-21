@@ -251,7 +251,24 @@ Connector.prototype.run = function(persistent) {
 
             // Fetch the CouchDB _changes URI.
             request.get({uri: uri, onResponse: true}, function(err, response) {
-                response.on('data', handleData);
+                var retry = function() { that.run.call(that, true); };
+
+                if (err) {
+                    // If the err is because we could not reach CouchDB, don't
+                    // give up - schedule a retry.
+                    if (err.code == 'ECONNREFUSED') {
+                        console.log('WARNING: Could not connect to CouchDB. Retrying in 30s.');
+                        setTimeout(retry, 30000);
+                    } else {
+                        that.emit('error',err);
+                    }
+                    return;
+                }
+
+                response.on('data', handleData).on('close', function() {
+                    console.log('WARNING: Lost connection to CouchDB. Retrying in 30s.');
+                    setTimeout(retry, 30000);
+                });
             });
         });
     } else {
