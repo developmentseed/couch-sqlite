@@ -166,7 +166,6 @@ var update = function(conn, record, callback) {
  * - `couchHost` (required) the host of the couch database
  * - `couchPort` (required) the port on which couch is running
  * - `couchDb` (required) the database name
- * - `keys` ...
  * - `table` Name to use for data table in the sqlite database, defaults to `data`
  * - `map` (deprecated)
  *

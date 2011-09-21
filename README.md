@@ -11,7 +11,6 @@ The function takes the following parameters:
 * sqlite: path to the SQLite database. Does not need to actually exist -- couch-sqlite autocreates it.
 * table: SQLite table name.
 * schema: table schema, used when autocreating the table.
-* keys: when determining whether to insert an update a row, these keys are checked.
 * couchHost: the host of the couch database
 * couchPort: the port on which couch is running
 * couchDb: the database name
@@ -23,7 +22,6 @@ couchSqlite({
     sqlite: options.config.files + '/data.sqlite',
     table: 'data',
     schema: 'NAME VARCHAR, ISO3 VARCHAR',
-    keys: ['NAME'],
     couchHost: 'localhost',
     couchPort: 1234,
     couchDb: 'data_for_sqlite'
