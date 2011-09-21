@@ -5,8 +5,6 @@ var events = require('events'),
     sqlite3 = require('sqlite3');
     pool = require('generic-pool').Pool;
 
-
-
 /**
  * Opens a connection to sqlite, optionally installs the database and its
  * tables.
@@ -99,11 +97,9 @@ var setLastId = function(conn, id, callback) {
 var update = function(conn, record, callback) {
 
     // Allow data to be transformed.
-    // TODO remove 'options.map' way...
-    if (conn.options.map) {
-        record.doc = conn.options.map(record.doc);
+    if (conn._map) {
+        record.doc = conn._map(record.doc);
     }
-    conn.emit('map', record.doc);
 
     // If the result of the `map` is a falsy value we do nothing.
     if (!record.doc) return callback();
@@ -177,13 +173,16 @@ var update = function(conn, record, callback) {
  * The Connector object which is passed to the callback is an eventEmitter
  * which emits the following events:
  *
- * - map
  * - error
  * - done (not implemented)
  */
 var Connector = function(options, callback) {
     // TODO enforce defaults, copy things over.
     this.options = options;
+
+    if (typeof(options.map) == 'function') {
+        this._map = options.map;
+    }
 
     // Setup the (single) connection pool.
     this.pool = pool({
@@ -311,6 +310,13 @@ Connector.prototype.run = function(persistent) {
         if (err) that.emit('error', err);
     })();
 };
+
+// Interface for setting up a map function for processing records before they
+// are written to SQLite
+Connector.prototype.map = function(map) {
+    this._map = map;
+    return this;
+}
 
 module.exports = function(options) {
    return new Connector(options);
