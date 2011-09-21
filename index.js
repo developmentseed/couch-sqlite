@@ -208,9 +208,7 @@ Connector.prototype.run = function(persistent) {
         actions = [];
 
     // Assumble the basic changes uri.
-    var uri = 'http://' + this.options.couchHost;
-        uri += ':' + this.options.couchPort + '/';
-        uri += this.options.couchDb + '/_changes?include_docs=true';
+    var uri = this.options.couchUri + '/_changes?include_docs=true';
 
     actions.push(function(next) {
         openSqlite(that, that.options.table, that.options.schema, next);
