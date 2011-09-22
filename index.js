@@ -235,7 +235,11 @@ Connector.prototype.run = function(persistent) {
                 var body = chunk.toString('utf8');
                 // "heartbeat" chunks will contain a single newline.
                 if (body.length > 1) {
-                    body = JSON.parse(body);
+                    try {
+                        body = JSON.parse(body);
+                    } catch(err) {
+                        return that.emit('error', err);
+                    }
                     update(that, body, function() {
                         if (err) return that.emit('error',err);
 
