@@ -231,14 +231,19 @@ Connector.prototype.run = function(persistent) {
             uri += '&feed=continuous';
             uri += '&heartbeat=30000'; // TODO make configurable.
 
+            // Closure use to assemble bits of JSON that come in as chunks.
+            var buffer = '';
+
             var handleData = function(chunk) {
-                var body = chunk.toString('utf8');
+                var body = buffer + chunk.toString('utf8');
                 // "heartbeat" chunks will contain a single newline.
                 if (body.length > 1) {
                     try {
                         body = JSON.parse(body);
+                        buffer = '';
                     } catch(err) {
-                        return that.emit('error', err);
+                        buffer = body;
+                        return;
                     }
                     update(that, body, function() {
                         if (err) return that.emit('error',err);
