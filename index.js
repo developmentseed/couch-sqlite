@@ -327,6 +327,9 @@ Connector.prototype.run = function(persistent) {
                 next();
             }
         });
+        actions.push(function(next, err, updateSeq) {
+            that.emit('done', lastId);
+        });
     }
 
     _(actions).reduceRight(_.wrap, function(err) {
