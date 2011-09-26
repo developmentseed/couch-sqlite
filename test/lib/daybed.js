@@ -3,7 +3,7 @@ var http = require('http'),
 
 /**
  * Prop up a fake CouchDB server which can be used to (psycho)analyize what our
- * tells it.
+ * library tells it.
  */
 module.exports = function(port, callback) {
     var server = new http.Server();

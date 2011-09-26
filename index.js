@@ -163,9 +163,7 @@ var update = function(conn, record, callback) {
  *
  * - `sqlite` (required) Path to a sqlite file, or a location to write one.
  * - `schema` (required) a statement which can be used to create the schema.
- * - `couchHost` (required) the host of the couch database
- * - `couchPort` (required) the port on which couch is running
- * - `couchDb` (required) the database name
+ * - `couchUri` (required) the URI of the couch database.
  * - `table` Name to use for data table in the sqlite database, defaults to `data`
  * - `map` (deprecated)
  *

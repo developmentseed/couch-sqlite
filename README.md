@@ -11,7 +11,7 @@ The function takes the following parameters:
 * sqlite: path to the SQLite database. Does not need to actually exist -- couch-sqlite autocreates it.
 * table: SQLite table name.
 * schema: table schema, used when autocreating the table.
-* couchUri: The URI of the couch database. If couch is running on localhost, using the default port (5884) and the database name is `sqlite_data` this would be `http://localhost:5984/sqlite_data`.
+* couchUri: The URI of the couch database. If couch is running on localhost, using the default port (5984) and the database name is `sqlite_data` this would be `http://localhost:5984/sqlite_data`.
 
 ```javascript
 var couchSqlite = require('couch-sqlite');
