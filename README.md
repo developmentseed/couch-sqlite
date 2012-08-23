@@ -1,3 +1,4 @@
+[![build status](https://secure.travis-ci.org/developmentseed/couch-sqlite.png)](http://travis-ci.org/developmentseed/couch-sqlite)
 # About
 
 The couch-sqlite library allows easy moving of data from CouchDB into SQLite. The library provides two modes of operation; one-off and continuous.
